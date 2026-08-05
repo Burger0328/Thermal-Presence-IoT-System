@@ -1,0 +1,144 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Thermal Presence Dashboard</title>
+  <style>
+    body { font-family: 'Segoe UI', Arial, sans-serif; margin: 20px; background-color: #f0f2f5; }
+    h1 { color: #1a73e8; }
+    .row { display: flex; gap: 24px; flex-wrap: wrap; }
+    .card { border: none; border-radius: 12px; padding: 20px; background: white; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+    canvas { border: 1px solid #ccc; border-radius: 8px; display: block; }
+    button {
+      padding: 10px 16px; margin-right: 8px; border: none; border-radius: 6px;
+      background-color: #1a73e8; color: white; cursor: pointer;
+    }
+    button:hover { background-color: #1557b0; }
+    pre { background: #2d2d2d; color: #7fdbca; padding: 12px; border-radius: 8px; max-width: 520px; overflow: auto; font-size: 13px; }
+    .stats { margin-top: 15px; line-height: 1.6; font-weight: 500; }
+    .stats span { color: #1a73e8; }
+  </style>
+</head>
+<body>
+  <div style="display:flex; justify-content:space-between; align-items:center;">
+    <h1>Thermal Presence Dashboard</h1>
+    <div>
+      Logged in as <b>{{ username }}</b>
+      <button onclick="logout()" style="background:#d93025;">Logout</button>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="card">
+      <h2>Live Thermal Heatmap</h2>
+      <canvas id="heatmap" width="240" height="240"></canvas>
+      <div class="stats">
+        <div>Thermistor (Ambient): <span id="thermistor">--</span> °C</div>
+        <div>Prediction: <span id="prediction">--</span> (<span id="confidence">--</span>)</div>
+        <div>Device MAC: <span id="mac">--</span></div>
+      </div>
+      <div style="margin-top:15px;">
+        <button onclick="sendCmd('get_one')">Get One</button>
+        <button onclick="sendCmd('start_continuous')">Start Continuous</button>
+        <button onclick="sendCmd('stop')">Stop</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Database Readings (Last 10)</h2>
+      <button onclick="refreshReadings()" style="background-color: #34a853;">Refresh Data</button>
+      <div style="margin-top:10px;">
+        <pre id="dbout">[]</pre>
+      </div>
+    </div>
+  </div>
+
+<script>
+const canvas = document.getElementById("heatmap");
+const ctx = canvas.getContext("2d");
+const thermEl = document.getElementById("thermistor");
+const predEl = document.getElementById("prediction");
+const confEl = document.getElementById("confidence");
+const macEl  = document.getElementById("mac");
+const dbout  = document.getElementById("dbout");
+
+function clamp(x, lo, hi){ return Math.max(lo, Math.min(hi, x)); }
+
+function drawHeatmap(pixels, thermistorTemp){
+  if(!pixels || pixels.length !== 64) return;
+
+  const cell = 30;
+  const baseTemp = thermistorTemp || 25.0;
+  const maxDelta = 7.0;
+
+  for(let r=0; r<8; r++){
+    for(let c=0; c<8; c++){
+      const v = pixels[r*8+c];
+      let t = (v - baseTemp) / maxDelta;
+      t = clamp(t, 0, 1);
+      const hue = (1.0 - t) * 240;
+      ctx.fillStyle = `hsl(${hue}, 80%, 50%)`;
+      ctx.fillRect(c*cell, r*cell, cell, cell);
+    }
+  }
+}
+
+async function sendCmd(cmd){
+  const res = await fetch("/api/command", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({command: cmd})
+  });
+
+  if (res.status === 401) {
+    window.location.href = "/login";
+  }
+}
+
+async function refreshReadings(){
+  const res = await fetch("/api/readings");
+  if (res.status === 401) {
+    window.location.href = "/login";
+    return;
+  }
+  const data = await res.json();
+  dbout.textContent = JSON.stringify(data.slice(0, 10), null, 2);
+}
+
+async function logout(){
+  await fetch("/api/logout", { method: "POST" });
+  window.location.href = "/login";
+}
+
+function connectWS(){
+  const protocol = location.protocol === "https:" ? "wss" : "ws";
+  const ws = new WebSocket(`${protocol}://${location.host}/ws`);
+
+  ws.onopen = () => {
+    setInterval(()=>{ try{ ws.send("ping"); }catch(e){} }, 20000);
+  };
+
+  ws.onmessage = (ev) => {
+    try{
+      const msg = JSON.parse(ev.data);
+      if(msg.type === "reading"){
+        const temp = parseFloat(msg.thermistor_temp);
+        thermEl.textContent = temp.toFixed(2);
+        predEl.textContent = msg.prediction;
+        confEl.textContent = Number(msg.confidence).toFixed(3);
+        macEl.textContent = msg.mac_address;
+        drawHeatmap(msg.pixels, temp);
+      }
+    }catch(e){}
+  };
+
+  ws.onclose = () => {
+    setTimeout(connectWS, 1000);
+  };
+}
+
+connectWS();
+refreshReadings();
+</script>
+</body>
+</html>

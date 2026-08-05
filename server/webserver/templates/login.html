@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Login</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f0f2f5; display:flex; justify-content:center; align-items:center; height:100vh; }
+    .card { background:white; padding:30px; border-radius:12px; box-shadow:0 4px 12px rgba(0,0,0,0.1); width:320px; }
+    input { width:100%; padding:10px; margin:8px 0; box-sizing:border-box; }
+    button { width:100%; padding:10px; background:#1a73e8; color:white; border:none; border-radius:6px; cursor:pointer; }
+    .msg { color:red; margin-top:10px; }
+    a { display:block; margin-top:12px; text-align:center; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Login</h2>
+    <input id="username" placeholder="Username" />
+    <input id="password" type="password" placeholder="Password" />
+    <button onclick="login()">Login</button>
+    <div id="msg" class="msg"></div>
+    <a href="/register">Create an account</a>
+  </div>
+
+<script>
+async function login(){
+  const username = document.getElementById("username").value;
+  const password = document.getElementById("password").value;
+  const msg = document.getElementById("msg");
+
+  const res = await fetch("/api/login", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({username, password})
+  });
+
+  if(res.ok){
+    window.location.href = "/";
+  } else {
+    const data = await res.json().catch(() => ({}));
+    msg.textContent = data.detail || "Login failed";
+  }
+}
+</script>
+</body>
+</html>

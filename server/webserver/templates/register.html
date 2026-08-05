@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Register</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f0f2f5; display:flex; justify-content:center; align-items:center; height:100vh; }
+    .card { background:white; padding:30px; border-radius:12px; box-shadow:0 4px 12px rgba(0,0,0,0.1); width:320px; }
+    input { width:100%; padding:10px; margin:8px 0; box-sizing:border-box; }
+    button { width:100%; padding:10px; background:#34a853; color:white; border:none; border-radius:6px; cursor:pointer; }
+    .msg { color:red; margin-top:10px; }
+    a { display:block; margin-top:12px; text-align:center; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Register</h2>
+    <input id="username" placeholder="Username" />
+    <input id="password" type="password" placeholder="Password" />
+    <button onclick="registerUser()">Register</button>
+    <div id="msg" class="msg"></div>
+    <a href="/login">Back to login</a>
+  </div>
+
+<script>
+async function registerUser(){
+  const username = document.getElementById("username").value;
+  const password = document.getElementById("password").value;
+  const msg = document.getElementById("msg");
+
+  const res = await fetch("/api/register", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({username, password})
+  });
+
+  if(res.ok){
+    window.location.href = "/login";
+  } else {
+    const data = await res.json().catch(() => ({}));
+    msg.textContent = data.detail || "Registration failed";
+  }
+}
+</script>
+</body>
+</html>
