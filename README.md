@@ -60,7 +60,9 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    CSV["Authorized thermal CSV"] --> Engineering["Feature engineering"]
+    SensorData["Labeled 8x8 frames"] --> Validation["Validation + local backup"]
+    Validation --> CSV["Authorized thermal CSV"]
+    CSV --> Engineering["Feature engineering"]
     Engineering --> Split["Group-held-out evaluation"]
     Split --> Keras["Keras model + regularization"]
     Keras --> Quantize["Representative INT8 quantization"]
@@ -76,11 +78,23 @@ model artifacts, aggregate metrics, and synthetic tests without exposing those
 records. See [`ml/README.md`](ml/README.md) for reproduction instructions using
 an authorized dataset.
 
+## Data collection and validation
+
+The reusable collection stage validates every 64-pixel frame, rejects sensor
+errors and out-of-range temperatures, records a local CSV backup, tracks class
+balance, and provides bounded exponential backoff for unreliable uploads. Its
+transport-independent design can sit behind an MQTT collector or an HTTP API
+without embedding course credentials or service URLs. See
+[`data_collection/README.md`](data_collection/README.md) for the CSV contract
+and validation command.
+
 ## My work
 
 I implemented and integrated the project across its ML, embedded, and web layers:
 
 - Thermal-frame normalization and 12 statistical/spatial summary features.
+- Labeled thermal-frame validation, resilient upload, local backup, and
+  collection-balance tooling.
 - Four-connected hot-region search and heat-location feature extraction.
 - Group-isolated evaluation, feature scaling, neural-network training, and
   quantitative reporting.
@@ -138,15 +152,15 @@ dependency exceeds the toolchain's path-length limit.
 
 ```text
 python -m pip install -r ml/requirements-dev.txt
-python -m pytest ml/tests -q
+python -m pytest ml/tests data_collection/tests -q
 
 cd server/webserver
 python -m pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-GitHub Actions runs the TinyML tests, API tests, and a complete ESP32 firmware
-build with placeholder credentials.
+GitHub Actions runs the collection tests, TinyML tests, API tests, and a
+complete ESP32 firmware build with placeholder credentials.
 
 ## Security notes
 
