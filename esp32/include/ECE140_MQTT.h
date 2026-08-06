@@ -19,7 +19,7 @@ public:
      * @param clientId Unique identifier for this MQTT client
      * @param topicPrefix Prefix for all topics published by this client
      */
-    ECE140_MQTT(String clientId, String topicPrefix);
+    ECE140_MQTT(String clientId, String topicPrefix, String broker);
 
     /**
      * @brief Connect to the MQTT broker
@@ -67,7 +67,7 @@ private:
     PubSubClient* _mqttClient;
     String _clientId;
     String _topicPrefix;
-    const char* _broker = "broker.emqx.io";
+    String _broker;
     bool _isTLS;
 
     void _setupMQTTClient(int port);

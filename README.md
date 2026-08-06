@@ -1,28 +1,52 @@
 # Thermal Presence IoT System
 
-An end-to-end occupancy monitor that turns an 8x8 thermal sensor into a live,
-authenticated web dashboard. An ESP32-S3 collects AMG8833 measurements,
-estimates whether a person is present, and exchanges readings and commands with
-a FastAPI service over MQTT.
+An end-to-end TinyML occupancy monitor built around an ESP32-S3 and AMG8833
+8x8 thermal array. The device engineers 76 features, runs a fully quantized
+neural network locally, and sends live readings through MQTT to an authenticated
+FastAPI dashboard.
 
-[Watch the hardware demonstration](https://youtu.be/XclNvlHVHt8)
+- [Watch the TinyML hardware inference demo](https://youtu.be/LUHnM6G2Q4g)
+- [Watch the connected dashboard demonstration](https://youtu.be/XclNvlHVHt8)
+
+## Results
+
+| Measure | Result |
+| --- | ---: |
+| Held-out group accuracy | 89.04% |
+| Empty-room F1 | 88.97% |
+| Person-present F1 | 89.12% |
+| Held-out readings | 3,513 |
+| Independent collection groups | 101 |
+| INT8 TFLite model size | 6.7 KB |
+| Model input | 76 engineered features |
+
+Evaluation uses a held-out `GroupKFold` partition so readings from the same
+collection participant cannot appear in both training and evaluation. After
+evaluation, a fresh deployment model is trained on all authorized readings with
+the exact `StandardScaler` exported to the ESP32. Full metrics are available in
+[`ml/artifacts/metrics.json`](ml/artifacts/metrics.json).
 
 ## What it does
 
 - Samples all 64 AMG8833 thermal pixels and the ambient thermistor.
-- Detects presence from the peak-to-ambient temperature difference.
+- Computes ambient-normalized pixels, intensity statistics, spatial gradients,
+  connected hot regions, quadrant variance, center/edge contrast, profile
+  variation, hot-region position, and hot-pixel ratio.
+- Standardizes the 76-feature vector with training-time scaler parameters.
+- Runs a 32-16-1 neural network as INT8 TensorFlow Lite Micro inference.
 - Supports one-shot and continuous acquisition through MQTT commands.
 - Stores readings and discovered devices in MySQL.
-- Streams new readings to authenticated browsers over WebSockets.
-- Renders a live 8x8 temperature heatmap and recent database records.
-- Protects the dashboard and APIs with hashed passwords and server-side sessions.
+- Streams readings to authenticated browsers over WebSockets.
+- Renders an 8x8 temperature heatmap and recent database records.
 - Runs the web application and database as Docker Compose services.
 
 ## System architecture
 
 ```mermaid
 flowchart LR
-    Sensor["AMG8833 thermal array"] --> ESP["ESP32-S3 firmware"]
+    Sensor["AMG8833 thermal array"] --> Features["76-feature extraction"]
+    Features --> Model["6.7 KB INT8 TinyML model"]
+    Model --> ESP["ESP32-S3 prediction"]
     ESP -->|"readings / MQTT"| Broker["MQTT broker"]
     Browser["Authenticated dashboard"] -->|"commands / HTTP"| API["FastAPI service"]
     API -->|"commands / MQTT"| Broker
@@ -32,32 +56,55 @@ flowchart LR
     API -->|"live readings / WebSocket"| Browser
 ```
 
+## ML pipeline
+
+```mermaid
+flowchart LR
+    CSV["Authorized thermal CSV"] --> Engineering["Feature engineering"]
+    Engineering --> Split["Group-held-out evaluation"]
+    Split --> Keras["Keras model + regularization"]
+    Keras --> Quantize["Representative INT8 quantization"]
+    Quantize --> TFLite["model.tflite"]
+    TFLite --> Header["C++ model and scaler headers"]
+    Header --> Firmware["PlatformIO firmware"]
+```
+
+The training dataset is intentionally not published because it contains
+collection identifiers belonging to other course participants. The repository
+contains the complete loader contract, feature pipeline, grouped training code,
+model artifacts, aggregate metrics, and synthetic tests without exposing those
+records. See [`ml/README.md`](ml/README.md) for reproduction instructions using
+an authorized dataset.
+
 ## My work
 
-I implemented the project integration across the embedded and web layers:
+I implemented and integrated the project across its ML, embedded, and web layers:
 
-- ESP32 sensor acquisition, JSON serialization, MQTT command handling, and
-  continuous sampling control.
-- Presence detection based on the temperature difference between the hottest
-  pixel and the ambient thermistor.
-- FastAPI routes for authentication, commands, readings, and device discovery.
-- SQLAlchemy models and MySQL persistence for users, sessions, devices, and
-  thermal measurements.
-- MQTT-to-database ingestion and thread-safe WebSocket broadcasting.
-- Browser heatmap rendering, session-aware controls, and recent-reading display.
-- Automated API tests and CI checks for both the server and firmware build.
+- Thermal-frame normalization and 12 statistical/spatial summary features.
+- Four-connected hot-region search and heat-location feature extraction.
+- Group-isolated evaluation, feature scaling, neural-network training, and
+  quantitative reporting.
+- Representative-dataset calibration and full INT8 TFLite export.
+- Python-to-C++ model/scaler header generation.
+- ESP32 feature parity, quantization, inference, sensor acquisition, JSON
+  serialization, MQTT commands, and continuous sampling.
+- FastAPI authentication, command, reading, and device APIs.
+- SQLAlchemy/MySQL persistence and MQTT-to-WebSocket live updates.
+- Browser heatmap rendering and authenticated device controls.
+- Automated TinyML artifact tests, API tests, and firmware CI builds.
 
-This project began as an individual UC San Diego ECE 140 technical assignment.
-The portfolio version removes grading material and credentials, documents the
-system as a standalone project, and adds reproducible testing and safer example
-configuration.
+This project began as a sequence of individual UC San Diego ECE 140 technical
+assignments. The portfolio version combines the independently completed stages,
+removes course instructions and participant data, fixes training/deployment
+preprocessing inconsistencies, and adds reproducible tests and documentation.
 
 ## Technology
 
 | Layer | Tools |
 | --- | --- |
-| Embedded | C++, PlatformIO, ESP32-S3, AMG8833, I2C |
-| Messaging | MQTT, PubSubClient, EMQX public broker by default |
+| TinyML | TensorFlow/Keras, scikit-learn, TFLite INT8, NumPy, pandas |
+| Embedded | C++, PlatformIO, ESP32-S3, AMG8833, TensorFlow Lite Micro |
+| Messaging | MQTT, PubSubClient |
 | Backend | Python, FastAPI, Pydantic, SQLAlchemy |
 | Data | MySQL 8, JSON thermal frames |
 | Frontend | HTML, CSS, JavaScript, Canvas, WebSocket |
@@ -72,47 +119,39 @@ Requirements: Docker and Docker Compose.
 3. From `server`, run `docker compose up --build`.
 4. Open `http://localhost:8000`, register an account, and sign in.
 
-The dashboard can be explored without the physical sensor after readings are
-posted to the authenticated `/api/readings` endpoint.
-
 ## Run the firmware
 
 Requirements: an Adafruit Feather ESP32-S3, AMG8833, and PlatformIO.
 
 1. Wire the sensor over I2C using the board's SDA, SCL, 3.3 V, and GND pins.
 2. Copy `esp32/.env.example` to `esp32/.env`.
-3. Configure Wi-Fi and use the same MQTT topic as the server.
+3. Configure Wi-Fi, MQTT broker, and the same MQTT topic used by the server.
 4. Build and upload the `adafruit_feather_esp32s3` PlatformIO environment.
 
-The `.env` files are ignored because they contain passwords and deployment
-settings. Only the `.env.example` templates belong in source control.
+The committed firmware already contains the generated INT8 model and scaler
+headers. `.env` files are ignored because they contain deployment credentials.
+
+On Windows, build from a short local path if the legacy TensorFlow Lite Micro
+dependency exceeds the toolchain's path-length limit.
 
 ## Test
 
-Server tests use SQLite and disable external MQTT connections, so they do not
-require Docker, hardware, or internet access:
-
 ```text
+python -m pip install -r ml/requirements-dev.txt
+python -m pytest ml/tests -q
+
 cd server/webserver
 python -m pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-CI also compiles the ESP32 firmware with placeholder credentials to catch build
-regressions.
-
-## Current detection method
-
-The firmware uses a transparent thermal-difference heuristic: it compares the
-hottest pixel with the sensor's ambient thermistor reading, maps that difference
-to a confidence score, and reports `PRESENT` at or above the configured 0.5
-threshold. This repository does not claim on-device neural-network inference;
-that would require a documented feature pipeline and hardware validation.
+GitHub Actions runs the TinyML tests, API tests, and a complete ESP32 firmware
+build with placeholder credentials.
 
 ## Security notes
 
 - Passwords are hashed with bcrypt.
 - Session cookies are HTTP-only and SameSite=Lax.
 - Set `COOKIE_SECURE=true` when serving the dashboard over HTTPS.
-- The default public MQTT broker is suitable for demonstrations, not sensitive
-  deployments. Use a private authenticated broker for production.
+- The public MQTT default is suitable for demonstrations only; use a private,
+  authenticated broker for sensitive deployments.

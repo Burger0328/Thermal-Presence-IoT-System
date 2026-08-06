@@ -1,7 +1,7 @@
 #include "ECE140_MQTT.h"
 
-ECE140_MQTT::ECE140_MQTT(String clientId, String topicPrefix)
-: _clientId(clientId), _topicPrefix(topicPrefix), _isTLS(false) {
+ECE140_MQTT::ECE140_MQTT(String clientId, String topicPrefix, String broker)
+: _clientId(clientId), _topicPrefix(topicPrefix), _broker(broker), _isTLS(false) {
     Serial.println("[ECE140_MQTT] Initialized with client ID and topic prefix");
     _mqttClient = new PubSubClient(_wifiClient);
 }
@@ -24,7 +24,7 @@ bool ECE140_MQTT::connectToBroker(int port) {
 
 void ECE140_MQTT::_setupMQTTClient(int port) {
     _mqttClient = new PubSubClient(_wifiClient);
-    _mqttClient->setServer(_broker, port);
+    _mqttClient->setServer(_broker.c_str(), port);
     _mqttClient->setBufferSize(1024);
 }
 
